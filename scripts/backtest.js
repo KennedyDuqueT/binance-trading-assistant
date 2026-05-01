@@ -39,6 +39,8 @@ const KNOWN_FLAGS = new Set([
   "strategy",
   "slippage-bps",
   "initial-capital",
+  "side",
+  "break-window",
   "json",
   "no-snapshot",
   "replay",
@@ -46,7 +48,8 @@ const KNOWN_FLAGS = new Set([
   "h",
 ]);
 
-const KNOWN_STRATEGIES = ["utBotOnly"];
+const KNOWN_STRATEGIES = ["utBotOnly", "confluenceEngine"];
+const KNOWN_SIDES = ["both", "long", "short"];
 
 function printUsage(stream = process.stderr) {
   const lines = [
@@ -60,16 +63,19 @@ function printUsage(stream = process.stderr) {
     "Flags:",
     "  --from <ISO>           inicio de ventana (default: hace 6 meses)",
     "  --to <ISO>             fin de ventana (default: ahora)",
-    "  --strategy <name>      estrategia (default: utBotOnly)",
+    "  --strategy <name>      estrategia (default: utBotOnly; también: confluenceEngine)",
     "  --slippage-bps <N>     slippage en bps (default: 5)",
     "  --initial-capital <N>  capital inicial USDT (default: 144)",
+    "  --side <both|long|short>  filtro de lado (default: both, sólo confluenceEngine)",
+    "  --break-window <N>     barras hacia atrás para R2 (default: 3, sólo confluenceEngine)",
     "  --json                 imprimir result.json en stdout",
     "  --no-snapshot          no escribir klines.json",
     "  --replay <runId>       releer snapshot existente y re-ejecutar",
     "  --help                 mostrar esta ayuda",
     "",
     "Aviso: utBotOnly es un baseline mínimo. El gate de testnet (win rate > 55%, R:R > 1:2)",
-    "se aplica al backtest de `confluence-engine`, no a este.",
+    "se aplica al backtest de `confluenceEngine` (TP único @ 2.5R en V1a; ladder 50/30/20",
+    "deferida al follow-up `confluence-engine-tp-ladder`), no al baseline utBotOnly.",
   ];
   stream.write(lines.join("\n") + "\n");
 }
@@ -196,6 +202,22 @@ async function main() {
     process.exit(1);
   }
 
+  const side = flags.side ?? "both";
+  if (!KNOWN_SIDES.includes(side)) {
+    process.stderr.write(
+      `Error: --side inválido (${side}). Debe ser uno de: ${KNOWN_SIDES.join(", ")}.\n`,
+    );
+    process.exit(1);
+  }
+  const breakWindowRaw = flags["break-window"] ?? "3";
+  const breakWindow = parseInt(breakWindowRaw, 10);
+  if (!Number.isFinite(breakWindow) || breakWindow <= 0) {
+    process.stderr.write(
+      `Error: --break-window debe ser entero positivo (recibido: ${breakWindowRaw}).\n`,
+    );
+    process.exit(1);
+  }
+
   let symbol, interval, klines, baseParams;
 
   if (flags.replay) {
@@ -311,6 +333,9 @@ async function main() {
         utAtr: 10,
         utKey: 2,
         symbol,
+        interval,
+        side,
+        breakWindow,
       },
     });
   } catch (e) {

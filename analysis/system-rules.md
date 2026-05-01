@@ -44,7 +44,9 @@ Sale por escalera, no todo a la vez:
 
 R:R mínimo aceptable para entrar: **1:2** (riesgo $1 para ganar $2).
 
-Nota: el gate de promoción a testnet (win rate > 55%, R:R > 1:2) se evalúa contra el backtest del `confluence-engine`, NO contra el baseline `utBotOnly` de `npm run backtest`.
+Nota: el gate de promoción a testnet (win rate > 55%, R:R > 1:2) se evalúa contra el backtest del `confluenceEngine` (`npm run backtest -- SYMBOL --strategy confluenceEngine`), NO contra el baseline `utBotOnly`.
+
+**Nota V1a sobre el backtest de `confluenceEngine`:** la versión actual de la estrategia en backtest usa **TP único @ 2.5R** en lugar del ladder 50/30/20 (cumple R:R ≥ 1:2 con margen). El ladder queda deferido al follow-up `confluence-engine-tp-ladder` (requiere extender el harness de posición para soportar TPs parciales + trailing breakeven). En la operación manual seguís usando el ladder 50/30/20 — la simplificación aplica solo al backtest mientras se valida el lift sobre el baseline.
 
 ---
 

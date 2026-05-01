@@ -99,6 +99,8 @@ Si las 4 condiciones no se pueden verificar (por ejemplo, no hay captura de Trad
 - **Take-profit por niveles:** 50% en TP1, 30% en TP2, dejar 20% con trailing stop a breakeven después de TP1
 - **R:R mínimo:** 1:2 (si TP1 implica menos, no abrir el trade)
 
+> **Nota V1a (`confluenceEngine`):** la implementación inicial de la estrategia en backtest usa **TP único @ 2.5R** (cumple R:R ≥ 1:2 con 0.5R de margen sobre slippage) en lugar del ladder 50/30/20. La ladder requiere extensiones al harness de posición (TPs parciales + trailing a breakeven después de TP1) y queda deferida al follow-up `confluence-engine-tp-ladder` para mantener el cambio actual acotado a lógica de entrada. La regla operativa para el operador humano sigue siendo el ladder 50/30/20 — la simplificación V1a aplica sólo al backtest.
+
 ### 5.3 Tamaño de posición
 
 | Tier | Monedas | Tamaño USDT | Apalancamiento |
@@ -254,7 +256,9 @@ V1 ship sólo la estrategia `utBotOnly` — long-only, una posición a la vez, e
 
 ### 11.2 Gate de promoción a testnet
 
-**El gate de win rate > 55% y R:R promedio > 1:2 se evalúa contra el backtest del `confluence-engine`** (la estrategia que implementa la regla 3-de-4 + contexto BTC + TP ladder + R:R filter), NO contra `utBotOnly`. La baseline existe sólo como punto de referencia: si `confluence-engine` no supera al baseline en una ventana de 6 meses sobre BTC/ETH/SOL, el sistema no tiene edge y no se promueve a testnet.
+**El gate de win rate > 55% y R:R promedio > 1:2 se evalúa contra el backtest del `confluenceEngine`** (la estrategia que implementa la regla 3-de-4 + contexto BTC + R:R filter), NO contra `utBotOnly`. La baseline existe sólo como punto de referencia: si `confluenceEngine` no supera al baseline en una ventana de 6 meses sobre BTC/ETH/SOL, el sistema no tiene edge y no se promueve a testnet.
+
+**V1a `confluenceEngine`** ship con **TP único @ 2.5R** (deferida la ladder 50/30/20 al follow-up `confluence-engine-tp-ladder`). El gate se evalúa con esta versión simplificada — si supera al baseline con TP único, podemos promover a testnet sin esperar la ladder; si no supera, la ladder probablemente tampoco salvará el sistema y hay que revisitar reglas de entrada antes que reglas de salida.
 
 ## 12. Seguridad
 

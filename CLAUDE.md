@@ -46,7 +46,9 @@ R:R mínimo aceptable: 1:2.
 
 Si las 4 condiciones no se pueden verificar, decirlo explícitamente y NO recomendar entrada por defecto.
 
-Nota sobre el gate de testnet (win rate > 55%, R:R > 1:2): aplica al backtest del `confluence-engine` (la estrategia que codifica la regla 3-de-4 + contexto BTC + TP ladder), NO al baseline `utBotOnly` que ya está en `scripts/backtest.js`. El baseline existe sólo como referencia para medir el lift de la confluencia.
+Nota sobre el gate de testnet (win rate > 55%, R:R > 1:2): aplica al backtest del `confluenceEngine` (la estrategia que codifica la regla 3-de-4 + contexto BTC en `scripts/lib/backtest/strategies/confluenceEngine.js`), NO al baseline `utBotOnly`. El baseline existe sólo como referencia para medir el lift de la confluencia.
+
+Nota V1a sobre `confluenceEngine`: en backtest la estrategia usa **TP único @ 2.5R** en lugar del ladder 50/30/20 — la ladder queda deferida al follow-up `confluence-engine-tp-ladder` (requiere extensiones al harness de posición). La regla operativa para el operador humano sigue siendo el ladder; la simplificación aplica sólo al backtest. Flags relevantes: `--strategy confluenceEngine`, `--side <both|long|short>` (default both), `--break-window <N>` (default 3 barras para R2).
 
 ## Tamaño de posición
 
