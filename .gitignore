@@ -20,3 +20,4 @@ charts/private/
 
 # Script state
 analysis/.watchlist-state.json
+analysis/klines/

@@ -38,9 +38,16 @@ npm run token-audit -- BTC --json
 # Watchlist: precios actuales + %Δ vs última corrida
 npm run watchlist-update
 npm run watchlist-update -- --json
+
+# Señales locales (UT Bot + LuxAlgo S&R sobre velas Binance)
+npm run signals -- BTCUSDT 1h
+npm run signals -- ETHUSDT 4h --json
+npm run signals -- SOLUSDT 1h --ut-key 3 --lux-pivot 10 --lux-vol-pct 25
 ```
 
 Nota: con `npm run`, los argumentos hacia el script requieren el separador `--` (p.ej. `npm run token-audit -- AXL`). Sin el `--`, npm consume las flags.
+
+Las señales son una implementación local de UT Bot Alerts y LuxAlgo S&R with Breaks sobre las velas que devuelve Binance Futures. Compará siempre con TradingView para validar; si las labels Buy/Sell o B/S no aparecen en el mismo candle, ajustá los parámetros con `--ut-atr`, `--ut-key`, `--lux-pivot`, `--lux-vol-pct`. La cache de klines vive en `analysis/klines/` (gitignored) — para limpiar: `rm -rf analysis/klines/`.
 
 Smart money en `market-snapshot` se reporta como `n/d (no aplica para perpetuos CEX)` — la skill on-chain solo cubre tokens DEX. El estado interno de `watchlist-update` vive en `analysis/.watchlist-state.json` (gitignored).
 
