@@ -54,7 +54,7 @@ Capital actual: $144 USDT. Pérdida máxima por trade: **3% del capital** (~$4.3
 |---|---|---|---|
 | **T1** | BTC, ETH, SOL, XRP | $5–$15 | 5–10x (15x solo BTC por mínimos de orden) |
 | **T2** | Narrative altcoins (BIO, AXL, VIRTUAL, TAO) | $2–$5 | 3–5x |
-| **T3** | Memecoins (DOGE, BONK, WIF, PENGU) | $1–$3 | 2–3x |
+| **T3** | Memecoins (DOGE, 1000BONK, WIF, PENGU) | $1–$3 | 2–3x |
 
 Si la pérdida proyectada al stop excede 3% del capital → reducir tamaño antes de entrar.
 

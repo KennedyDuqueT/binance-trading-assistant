@@ -25,13 +25,24 @@ Controlado por `BINANCE_MODE` en `.env`:
 
 ## Comandos
 
-(placeholder — los scripts npm se completan en la próxima iteración)
+```bash
+# Snapshot de mercado (BTC, ETH, SOL): precio, funding, long/short
+npm run market-snapshot
+npm run market-snapshot -- --json
 
+# Auditar un token. Smart mode (resuelve por símbolo) o explícito.
+npm run token-audit -- AXL
+npm run token-audit -- BSC 0xabc...
+npm run token-audit -- BTC --json
+
+# Watchlist: precios actuales + %Δ vs última corrida
+npm run watchlist-update
+npm run watchlist-update -- --json
 ```
-npm run market-snapshot    # BTC/ETH/SOL: precio, funding, long/short, smart money
-npm run token-audit TOKEN  # auditoría rápida de un token
-npm run watchlist-update   # refresca precios y reporta cambios
-```
+
+Nota: con `npm run`, los argumentos hacia el script requieren el separador `--` (p.ej. `npm run token-audit -- AXL`). Sin el `--`, npm consume las flags.
+
+Smart money en `market-snapshot` se reporta como `n/d (no aplica para perpetuos CEX)` — la skill on-chain solo cubre tokens DEX. El estado interno de `watchlist-update` vive en `analysis/.watchlist-state.json` (gitignored).
 
 ## Estructura
 

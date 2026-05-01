@@ -105,7 +105,7 @@ Si las 4 condiciones no se pueden verificar (por ejemplo, no hay captura de Trad
 |---|---|---|---|
 | 1 | BTC, ETH, SOL, XRP | $5–$15 | 5–10x (15x solo BTC por mínimos) |
 | 2 | BIO, AXL, VIRTUAL, TAO | $2–$5 | 3–5x |
-| 3 | DOGE, BONK, WIF, PENGU | $1–$3 | 2–3x |
+| 3 | DOGE, 1000BONK, WIF, PENGU | $1–$3 | 2–3x |
 
 **Pérdida máxima por trade:** 3% del capital total (~$4.30 con $144 actual)
 

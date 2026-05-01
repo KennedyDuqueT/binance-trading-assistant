@@ -9,5 +9,9 @@
   "engines": {
     "node": ">=20"
   },
-  "scripts": {}
+  "scripts": {
+    "market-snapshot": "node scripts/market-snapshot.js",
+    "token-audit": "node scripts/token-audit.js",
+    "watchlist-update": "node scripts/watchlist-update.js"
+  }
 }

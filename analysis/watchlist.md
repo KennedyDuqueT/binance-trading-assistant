@@ -27,6 +27,6 @@ Estado posibles: `observando`, `setup-cerca`, `entrada-activa`, `out`. Llenar `N
 | Par | Tier | Notas | Última revisión |
 |---|---|---|---|
 | DOGEUSDT | T3 | — | — |
-| BONKUSDT | T3 | — | — |
+| 1000BONKUSDT | T3 | — | — |
 | WIFUSDT | T3 | — | — |
 | PENGUUSDT | T3 | — | — |

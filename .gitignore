@@ -17,3 +17,6 @@ __pycache__/
 
 # Private trade captures (charts/ itself IS tracked)
 charts/private/
+
+# Script state
+analysis/.watchlist-state.json

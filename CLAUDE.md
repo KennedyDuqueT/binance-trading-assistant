@@ -50,7 +50,7 @@ Si las 4 condiciones no se pueden verificar, decirlo explícitamente y NO recome
 
 - Tier 1 (BTC, ETH, SOL, XRP): $5–$15, apalancamiento 5–10x (15x solo BTC por mínimos de orden)
 - Tier 2 (altcoins narrativa: BIO, AXL, VIRTUAL, TAO): $2–$5, apalancamiento 3–5x
-- Tier 3 (memecoins: DOGE, BONK, WIF, PENGU): $1–$3, apalancamiento 2–3x
+- Tier 3 (memecoins: DOGE, 1000BONK, WIF, PENGU): $1–$3, apalancamiento 2–3x
 
 Pérdida máxima por trade: 3% del capital total ($4.30 con $144).
 
