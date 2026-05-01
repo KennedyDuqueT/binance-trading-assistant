@@ -70,7 +70,7 @@ export async function runBacktest({ klines, strategy, options = {} }) {
       ? await strategy.init(klines, options)
       : {};
 
-  /** @type {null | {side:'long'|'short', stopPrice:number, tpPrice:number|null, sizeUSDT:number, leverage:number}} */
+  /** @type {null | {side:'long'|'short', stopPrice:number, tpPrice:number|null, sizeUSDT:number, leverage:number, extras?:object}} */
   let pendingEntry = null;
 
   for (let i = 0; i < klines.length; i++) {
@@ -91,6 +91,12 @@ export async function runBacktest({ klines, strategy, options = {} }) {
         leverage: pendingEntry.leverage,
         entryBarIdx: i,
       });
+      // Adjuntar metadata custom de la estrategia (e.g., confluence, tier)
+      // para propagarla al trade record en el cierre. No es campo del Position
+      // contract; vive aparte para no contaminar Position.apply().
+      if (pendingEntry.extras) {
+        position._extras = pendingEntry.extras;
+      }
       pendingEntry = null;
     }
 
@@ -138,12 +144,25 @@ export async function runBacktest({ klines, strategy, options = {} }) {
         // Strategy no entregó stop -> abortamos esta señal silenciosamente.
         // (El operador sabrá por la métrica si una estrategia genera muchos no-trades.)
       } else {
+        // Cualquier campo que la estrategia agregue más allá del Position contract
+        // (e.g., confluence, confluenceCount, tier) viaja como `extras` y se
+        // propaga al trade record en el cierre.
+        const {
+          action: _a,
+          side: _s,
+          stopPrice: _sp,
+          tpPrice: _tp,
+          sizeUSDT: _su,
+          leverage: _l,
+          ...extras
+        } = action;
         pendingEntry = {
           side: action.side ?? "long",
           stopPrice: action.stopPrice,
           tpPrice: action.tpPrice ?? null,
           sizeUSDT: action.sizeUSDT ?? options.positionSizeUSDT ?? 5,
           leverage: action.leverage ?? options.leverage ?? 5,
+          extras: Object.keys(extras).length > 0 ? extras : undefined,
         };
       }
     }
@@ -187,13 +206,19 @@ export async function runBacktest({ klines, strategy, options = {} }) {
 }
 
 /**
- * Construye el record de trade con los 13 campos contractados.
+ * Construye el record de trade con los 13 campos contractados + cualquier
+ * metadata custom que la estrategia haya agregado vía `position._extras`.
+ *
+ * Los extras se spread PRIMERO para que los campos estándar siempre ganen
+ * en caso de colisión (no rompemos el contrato del trade record).
  */
 function _recordTrade(position, result, exitReason, currentBarIdx) {
   const pnlPct = (result.pnlUSDT / position.sizeUSDT) * 100;
   const holdBars =
     position.entryBarIdx != null ? currentBarIdx - position.entryBarIdx : null;
+  const extras = position._extras ?? {};
   return {
+    ...extras,
     side: position.side,
     entryTime: position.entryTime,
     entryPrice: position.entryPrice,

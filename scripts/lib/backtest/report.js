@@ -51,7 +51,7 @@ export async function writeReport({
   );
 
   // trades.csv (encabezados en inglés)
-  const tradesCsv = renderTradesCsv(trades);
+  const tradesCsv = renderTradesCsv(trades, params);
   await writeFile(path.join(outDir, "trades.csv"), tradesCsv);
 
   // equity.csv (per-bar)
@@ -63,9 +63,18 @@ export async function writeReport({
   await writeFile(path.join(outDir, "report.md"), md);
 }
 
-function renderTradesCsv(trades) {
+function renderTradesCsv(trades, params = {}) {
+  // Columnas estándar (contrato V1) + columnas extendidas para confluence /
+  // tier / strategy. Las columnas extendidas se llenan vacías para estrategias
+  // que no las emiten (e.g., utBotOnly), preservando el ancho del CSV.
   const header =
-    "side,entryTime,entryPrice,stopPrice,tpPrice,exitTime,exitPrice,exitReason,sizeUSDT,leverage,pnlUSDT,pnlPct,R,holdBars";
+    "side,entryTime,entryPrice,stopPrice,tpPrice,exitTime,exitPrice,exitReason,sizeUSDT,leverage,pnlUSDT,pnlPct,R,holdBars," +
+    "r1Pass,r2Pass,r3Pass,r4Pass,confluenceCount,tier,strategyName";
+  const strategyName = params.strategy ?? "";
+  const passCell = (t, key) => {
+    if (t.confluence === undefined) return "";
+    return t.confluence?.[key] ? "1" : "0";
+  };
   const rows = trades.map((t) =>
     [
       t.side,
@@ -82,6 +91,13 @@ function renderTradesCsv(trades) {
       Number.isFinite(t.pnlPct) ? t.pnlPct.toFixed(6) : "",
       Number.isFinite(t.R) ? t.R.toFixed(6) : "",
       t.holdBars ?? "",
+      passCell(t, "r1"),
+      passCell(t, "r2"),
+      passCell(t, "r3"),
+      passCell(t, "r4"),
+      t.confluenceCount ?? "",
+      t.tier ?? "",
+      strategyName,
     ].join(","),
   );
   return [header, ...rows].join("\n") + "\n";
