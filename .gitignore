@@ -1,0 +1,19 @@
+# Secrets
+.env
+.env.local
+.env.*.local
+*.key
+secrets/
+
+# Dependencies
+node_modules/
+__pycache__/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+
+# Private trade captures (charts/ itself IS tracked)
+charts/private/

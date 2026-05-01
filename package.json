@@ -1,0 +1,13 @@
+{
+  "name": "binance-trading-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "author": "Kennedy Duque <kennedyduque11@gmail.com>",
+  "description": "Co-pilot for disciplined Binance Futures trading. Analysis-only by default. Not financial advice.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {}
+}

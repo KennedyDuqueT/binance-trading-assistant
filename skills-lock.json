@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "crypto-market-rank": {
+      "source": "binance/binance-skills-hub",
+      "sourceType": "github",
+      "skillPath": "skills/binance-web3/crypto-market-rank/SKILL.md",
+      "computedHash": "0d3428cfe4386dbc8e9498629e2a3dc1b0244e603cac6a439ea8b2f82df7af74"
+    },
+    "query-token-audit": {
+      "source": "binance/binance-skills-hub",
+      "sourceType": "github",
+      "skillPath": "skills/binance-web3/query-token-audit/SKILL.md",
+      "computedHash": "4328d725723b336f0f743359dd4d6fc238c1721bcfe789097ba7201855612ad5"
+    },
+    "query-token-info": {
+      "source": "binance/binance-skills-hub",
+      "sourceType": "github",
+      "skillPath": "skills/binance-web3/query-token-info/SKILL.md",
+      "computedHash": "70c448eec1a9349adf8977ba180ed421be62cc01d49b22bc4035eaae8baac605"
+    },
+    "trading-signal": {
+      "source": "binance/binance-skills-hub",
+      "sourceType": "github",
+      "skillPath": "skills/binance-web3/trading-signal/SKILL.md",
+      "computedHash": "3363c91803ed82496034ffbf54b5407ecc9a7713c994fe941328b7be6fccdcf6"
+    }
+  }
+}
