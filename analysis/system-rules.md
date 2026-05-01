@@ -44,6 +44,8 @@ Sale por escalera, no todo a la vez:
 
 R:R mínimo aceptable para entrar: **1:2** (riesgo $1 para ganar $2).
 
+Nota: el gate de promoción a testnet (win rate > 55%, R:R > 1:2) se evalúa contra el backtest del `confluence-engine`, NO contra el baseline `utBotOnly` de `npm run backtest`.
+
 ---
 
 ## Tamaño y apalancamiento por tier

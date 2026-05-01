@@ -13,6 +13,7 @@
     "market-snapshot": "node scripts/market-snapshot.js",
     "token-audit": "node scripts/token-audit.js",
     "watchlist-update": "node scripts/watchlist-update.js",
-    "signals": "node scripts/signals.js"
+    "signals": "node scripts/signals.js",
+    "backtest": "node scripts/backtest.js"
   }
 }

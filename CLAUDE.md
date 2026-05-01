@@ -46,6 +46,8 @@ R:R mínimo aceptable: 1:2.
 
 Si las 4 condiciones no se pueden verificar, decirlo explícitamente y NO recomendar entrada por defecto.
 
+Nota sobre el gate de testnet (win rate > 55%, R:R > 1:2): aplica al backtest del `confluence-engine` (la estrategia que codifica la regla 3-de-4 + contexto BTC + TP ladder), NO al baseline `utBotOnly` que ya está en `scripts/backtest.js`. El baseline existe sólo como referencia para medir el lift de la confluencia.
+
 ## Tamaño de posición
 
 - Tier 1 (BTC, ETH, SOL, XRP): $5–$15, apalancamiento 5–10x (15x solo BTC por mínimos de orden)

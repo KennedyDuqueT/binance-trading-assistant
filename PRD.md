@@ -246,6 +246,16 @@ Una vez los indicadores estén implementados localmente:
 - Validar métricas: win rate, profit factor, max drawdown, expectancy
 - Solo si los resultados son positivos, proceder a testnet con dinero falso
 
+### 11.1 Harness de backtest y baseline `utBotOnly`
+
+El harness vive en `scripts/backtest.js` + `scripts/lib/backtest/` y es ejecutable con `npm run backtest -- SYMBOL [INTERVAL]`. Outputs en `analysis/backtests/{runId}/` (gitignored): `report.md`, `trades.csv`, `equity.csv`, `result.json`, `klines.json` (snapshot para `--replay`).
+
+V1 ship sólo la estrategia `utBotOnly` — long-only, una posición a la vez, entrada en UT Bot Buy al next bar's open con stop = trailing-stop value, salida en UT Bot Sell al close. Sin filtro de confluencia, sin contexto BTC, sin TP por niveles. Es **baseline** explícito, para medir cuánto suma la confluencia.
+
+### 11.2 Gate de promoción a testnet
+
+**El gate de win rate > 55% y R:R promedio > 1:2 se evalúa contra el backtest del `confluence-engine`** (la estrategia que implementa la regla 3-de-4 + contexto BTC + TP ladder + R:R filter), NO contra `utBotOnly`. La baseline existe sólo como punto de referencia: si `confluence-engine` no supera al baseline en una ventana de 6 meses sobre BTC/ETH/SOL, el sistema no tiene edge y no se promueve a testnet.
+
 ## 12. Seguridad
 
 ### 12.1 API keys

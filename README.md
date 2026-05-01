@@ -43,7 +43,16 @@ npm run watchlist-update -- --json
 npm run signals -- BTCUSDT 1h
 npm run signals -- ETHUSDT 4h --json
 npm run signals -- SOLUSDT 1h --ut-key 3 --lux-pivot 10 --lux-vol-pct 25
+
+# Backtest local (baseline utBotOnly; el sistema completo viene en confluence-engine)
+npm run backtest -- BTCUSDT
+npm run backtest -- ETHUSDT 1h --to 2026-04-30T00:00:00Z
+npm run backtest -- BTCUSDT --from 2026-04-01T00:00:00Z
+npm run backtest -- BTCUSDT --replay 2026-05-01T12-00-00Z
+npm run backtest -- BTCUSDT --json
 ```
+
+Aviso sobre el backtest: la estrategia `utBotOnly` es un **baseline mínimo** (solo señales UT Bot, sin filtro de confluencia 3-de-4, sin contexto BTC, sin TP por niveles). El gate de promoción a testnet (win rate > 55%, R:R > 1:2) NO se valida contra este resultado — se valida contra el backtest del `confluence-engine` cuando esté implementado. Los outputs del backtest viven en `analysis/backtests/{runId}/` (gitignored). Para reproducir un run, usá `--replay <runId>` que relee `klines.json` del snapshot.
 
 Nota: con `npm run`, los argumentos hacia el script requieren el separador `--` (p.ej. `npm run token-audit -- AXL`). Sin el `--`, npm consume las flags.
 
