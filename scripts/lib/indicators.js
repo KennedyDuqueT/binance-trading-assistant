@@ -4,8 +4,10 @@
 //   - EMA(period=1) === source (UT Bot usa este atajo).
 //   - Pivots con confirmación rezagada por rightBars (igual que ta.pivothigh/low).
 //   - UT Bot trailing stop con cuatro ramas (QuantNomad/UT Bot Alerts).
-//   - LuxAlgo S&R with Breaks: pivots → niveles activos → break por close + filtro
-//     de volumen via SMA oscillator.
+//   - LuxAlgo S&R with Breaks: port línea-a-línea del Pine v4 oficial.
+//     Mantiene UN SOLO nivel activo por lado (highUsePivot/lowUsePivot via
+//     fixnan(pivothigh(...)[1])), separa B/S (body+volumen) de Bull/Bear Wick
+//     (rechazo, sin gate de volumen), y usa EMA(volume, 5/10) para el oscilador.
 //
 // ESM puro. Sin imports más allá de intrínsecos. Sin I/O ni mutación global.
 //
@@ -37,6 +39,11 @@ export function sma(values, period) {
 
 /**
  * EMA estándar con semilla SMA. Para period === 1, devuelve copia de values.
+ *
+ * Nota: TradingView ta.ema también usa SMA-seed al primer bar válido, así que
+ * esta implementación es compatible con Pine. Antes del seed, las posiciones
+ * son NaN (el consumidor de luxAlgoSnR ya filtra null/undefined/NaN al evaluar
+ * el oscilador de volumen, dado que `NaN > threshold` es false).
  */
 export function ema(values, period) {
   const n = values.length;
@@ -224,150 +231,270 @@ export function utBot(klines, opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// LuxAlgo Support & Resistance with Breaks (decisiones D4, D5)
+// LuxAlgo Support & Resistance with Breaks
 // ---------------------------------------------------------------------------
 
 /**
- * LuxAlgo S&R with Breaks. Emite niveles activos (top-keepLast por lado),
- * y arreglo de breaks confirmados por close. withVolume es informativo:
- * el break se emite siempre, el flag indica si el oscilador SMA pasó el umbral.
+ * LuxAlgo "Support and Resistance Levels with Breaks" — port línea-a-línea
+ * del Pine Script v4 oficial.
  *
- * @param {Array<{openTime:number,high:number,low:number,close:number,volume:number}>} klines
+ * Pine source (resumen):
+ *   highUsePivot = fixnan(pivothigh(leftBars, rightBars)[1])
+ *   lowUsePivot  = fixnan(pivotlow(leftBars,  rightBars)[1])
+ *   short = ema(volume, 5);  long = ema(volume, 10)
+ *   osc   = 100 * (short - long) / long
+ *   "B"        : crossover(close,  highUsePivot) AND not(open - low > close - open) AND osc > volThresh
+ *   "S"        : crossunder(close, lowUsePivot)  AND not(open - close < high - open) AND osc > volThresh
+ *   "Bull Wick": crossover(close,  highUsePivot) AND (open - low > close - open)
+ *   "Bear Wick": crossunder(close, lowUsePivot)  AND (open - close < high - open)
+ *
+ * Diferencias respecto al puerto anterior (las 5 que confirmó el operador):
+ *   1) UN SOLO nivel activo por lado (no una lista de últimos N).
+ *   2) Cuatro categorías de break (B, S, Bull_Wick, Bear_Wick), no solo B/S.
+ *   3) Oscilador con EMA(volume, 5/10), NO SMA.
+ *   4) B/S sólo si osc > umbral (sino se loguea como B_unconfirmed/S_unconfirmed
+ *      en `breaks` para inspección, fuera de `visibleBreaks`).
+ *   5) `pivothigh(...)[1]` agrega 1 barra de retraso adicional sobre rightBars:
+ *      el pivot detectado en `src` recién está activo en bar `src + rightBars + 1`.
+ *
+ * @param {Array<{openTime:number,open:number,high:number,low:number,close:number,volume:number}>} klines
  * @param {{
  *   leftBars?:number, rightBars?:number,
- *   volMaShort?:number, volMaLong?:number, volThresholdPct?:number,
- *   keepLast?:number
+ *   volMaShort?:number, volMaLong?:number, volThresholdPct?:number
  * }} [opts]
  * @returns {{
- *   supports: Array<{index:number,time:number,price:number,broken:boolean}>,
- *   resistances: Array<{index:number,time:number,price:number,broken:boolean}>,
- *   breaks: Array<{index:number,time:number,type:'B'|'S',price:number,withVolume:boolean}>,
- *   lastBreak: object|null
+ *   highUsePivot: {price:number,pivotIndex:number,time:number}|null,
+ *   lowUsePivot:  {price:number,pivotIndex:number,time:number}|null,
+ *   breaks: Array<object>,
+ *   visibleBreaks: Array<object>,
+ *   lastBreak: object|null,
+ *   lastVisibleBreak: object|null,
+ *   pivotHistory: { highs: Array<object>, lows: Array<object> }
  * }}
  */
 export function luxAlgoSnR(klines, opts = {}) {
-  if (!Array.isArray(klines) || klines.length === 0) {
-    throw new Error("klines vacíos");
-  }
   const {
     leftBars = 15,
     rightBars = 15,
     volMaShort = 5,
     volMaLong = 10,
     volThresholdPct = 20,
-    keepLast = 5,
   } = opts;
-  const n = klines.length;
 
-  const empty = {
-    supports: [],
-    resistances: [],
-    breaks: [],
-    lastBreak: null,
-  };
+  const N = klines.length;
+  if (N === 0) throw new Error("klines vacíos");
 
-  if (n < leftBars + rightBars + volMaLong) return empty;
+  // Sin barras suficientes para detectar siquiera un pivot con el shift [1].
+  if (N < leftBars + rightBars + 2) {
+    return {
+      highUsePivot: null,
+      lowUsePivot: null,
+      breaks: [],
+      visibleBreaks: [],
+      lastBreak: null,
+      lastVisibleBreak: null,
+      pivotHistory: { highs: [], lows: [] },
+    };
+  }
 
-  // Volumen para el oscilador SMA.
-  const volumes = klines.map((k) => k.volume);
-  const volS = sma(volumes, volMaShort);
-  const volL = sma(volumes, volMaLong);
+  const close = klines.map((k) => k.close);
+  const open = klines.map((k) => k.open);
+  const high = klines.map((k) => k.high);
+  const low = klines.map((k) => k.low);
+  const vol = klines.map((k) => k.volume);
+  const time = klines.map((k) => k.openTime);
 
-  // Listas activas (no-broken) y archivo total.
-  const activeResistances = [];
-  const activeSupports = [];
-  const allResistances = [];
-  const allSupports = [];
-  const breaks = [];
+  // ---- Oscilador de volumen: EMA-based (NO SMA). ----
+  const emaShort = ema(vol, volMaShort);
+  const emaLong = ema(vol, volMaLong);
+  const osc = new Array(N);
+  for (let i = 0; i < N; i++) {
+    const L = emaLong[i];
+    osc[i] =
+      L !== null && L !== undefined && L > 0
+        ? (100 * (emaShort[i] - L)) / L
+        : null;
+  }
 
-  // Iteramos i desde la primera barra que puede confirmar un pivot
-  // (i.e., el pivot está en i - rightBars y necesita leftBars a la izquierda).
-  for (let i = leftBars + rightBars; i < n; i++) {
-    const pivotIdx = i - rightBars;
-
-    // Strict max/min en [pivotIdx-leftBars, pivotIdx+rightBars] excluyendo pivotIdx.
-    const ph = klines[pivotIdx].high;
-    const pl = klines[pivotIdx].low;
-    let isHigh = true;
-    let isLow = true;
-    for (let j = pivotIdx - leftBars; j <= pivotIdx + rightBars; j++) {
-      if (j === pivotIdx) continue;
-      if (klines[j].high >= ph) isHigh = false;
-      if (klines[j].low <= pl) isLow = false;
-      if (!isHigh && !isLow) break;
+  // ---- Pivot detection (estricto a ambos lados, igual que ta.pivothigh/low). ----
+  const isPivotHigh = new Array(N).fill(false);
+  const isPivotLow = new Array(N).fill(false);
+  for (let i = leftBars; i <= N - 1 - rightBars; i++) {
+    let pHigh = true,
+      pLow = true;
+    const h = high[i],
+      l = low[i];
+    for (let j = i - leftBars; j < i; j++) {
+      if (pHigh && high[j] >= h) pHigh = false;
+      if (pLow && low[j] <= l) pLow = false;
+      if (!pHigh && !pLow) break;
     }
-
-    if (isHigh) {
-      const lvl = {
-        index: pivotIdx,
-        time: klines[pivotIdx].openTime,
-        price: ph,
-        broken: false,
-      };
-      activeResistances.push(lvl);
-      allResistances.push(lvl);
-      // Mantener solo los últimos keepLast activos.
-      while (activeResistances.length > keepLast) activeResistances.shift();
-    }
-    if (isLow) {
-      const lvl = {
-        index: pivotIdx,
-        time: klines[pivotIdx].openTime,
-        price: pl,
-        broken: false,
-      };
-      activeSupports.push(lvl);
-      allSupports.push(lvl);
-      while (activeSupports.length > keepLast) activeSupports.shift();
-    }
-
-    // Filtro de volumen (decisión D5).
-    let withVolume = false;
-    const vS = volS[i];
-    const vL = volL[i];
-    if (Number.isFinite(vS) && Number.isFinite(vL) && vL > 0) {
-      const osc = ((vS - vL) / vL) * 100;
-      withVolume = osc > volThresholdPct;
-    }
-
-    const c = klines[i].close;
-
-    // Detectar break en resistencias activas.
-    for (let r = activeResistances.length - 1; r >= 0; r--) {
-      const lvl = activeResistances[r];
-      if (!lvl.broken && c > lvl.price) {
-        lvl.broken = true;
-        breaks.push({
-          index: i,
-          time: klines[i].openTime,
-          type: "B",
-          price: lvl.price,
-          withVolume,
-        });
-        activeResistances.splice(r, 1);
+    if (pHigh || pLow) {
+      for (let j = i + 1; j <= i + rightBars; j++) {
+        if (pHigh && high[j] >= h) pHigh = false;
+        if (pLow && low[j] <= l) pLow = false;
+        if (!pHigh && !pLow) break;
       }
     }
-    // Detectar break en soportes activos.
-    for (let s = activeSupports.length - 1; s >= 0; s--) {
-      const lvl = activeSupports[s];
-      if (!lvl.broken && c < lvl.price) {
-        lvl.broken = true;
+    isPivotHigh[i] = pHigh;
+    isPivotLow[i] = pLow;
+  }
+
+  // ---- highUsePivot[j] / lowUsePivot[j] = fixnan(pivothigh(...)[1]).
+  // En la barra j, el pivot fuente es j-1-rightBars; si es pivot, actualiza,
+  // sino se carry-forward el último conocido. Esto reproduce el shift `[1]`.
+  const highUsePivot = new Array(N).fill(null);
+  const lowUsePivot = new Array(N).fill(null);
+  let lastH = null,
+    lastL = null;
+  for (let j = 0; j < N; j++) {
+    const src = j - 1 - rightBars;
+    if (src >= 0 && isPivotHigh[src]) lastH = { price: high[src], pivotIndex: src };
+    if (src >= 0 && isPivotLow[src]) lastL = { price: low[src], pivotIndex: src };
+    highUsePivot[j] = lastH;
+    lowUsePivot[j] = lastL;
+  }
+
+  // ---- Detección de breaks/wicks. ----
+  const breaks = [];
+  for (let j = 1; j < N; j++) {
+    const hPrev = highUsePivot[j - 1],
+      hCurr = highUsePivot[j];
+    const lPrev = lowUsePivot[j - 1],
+      lCurr = lowUsePivot[j];
+
+    // Bullish: crossover de close sobre highUsePivot.
+    if (hPrev && hCurr && close[j - 1] <= hPrev.price && close[j] > hCurr.price) {
+      const lowerWick = open[j] - low[j];
+      const bodyUpMove = close[j] - open[j];
+      const isBullWick = lowerWick > bodyUpMove;
+      const volPasses = osc[j] !== null && osc[j] > volThresholdPct;
+
+      if (isBullWick) {
         breaks.push({
-          index: i,
-          time: klines[i].openTime,
-          type: "S",
-          price: lvl.price,
-          withVolume,
+          index: j,
+          time: time[j],
+          type: "Bull_Wick",
+          closePrice: close[j],
+          levelBroken: hCurr.price,
+          direction: "up",
+          shape: "wick",
+          withVolume: volPasses,
+          volumeOscillator: osc[j],
         });
-        activeSupports.splice(s, 1);
+      } else if (volPasses) {
+        breaks.push({
+          index: j,
+          time: time[j],
+          type: "B",
+          closePrice: close[j],
+          levelBroken: hCurr.price,
+          direction: "up",
+          shape: "body",
+          withVolume: true,
+          volumeOscillator: osc[j],
+        });
+      } else {
+        breaks.push({
+          index: j,
+          time: time[j],
+          type: "B_unconfirmed",
+          closePrice: close[j],
+          levelBroken: hCurr.price,
+          direction: "up",
+          shape: "body",
+          withVolume: false,
+          volumeOscillator: osc[j],
+        });
+      }
+    }
+
+    // Bearish: crossunder de close bajo lowUsePivot.
+    if (lPrev && lCurr && close[j - 1] >= lPrev.price && close[j] < lCurr.price) {
+      const upperWick = high[j] - open[j];
+      const bodyDownMove = open[j] - close[j];
+      // Pine: not(open - close < high - open) → bearWick si (open - close) < (high - open).
+      const isBearWick = bodyDownMove < upperWick;
+      const volPasses = osc[j] !== null && osc[j] > volThresholdPct;
+
+      if (isBearWick) {
+        breaks.push({
+          index: j,
+          time: time[j],
+          type: "Bear_Wick",
+          closePrice: close[j],
+          levelBroken: lCurr.price,
+          direction: "down",
+          shape: "wick",
+          withVolume: volPasses,
+          volumeOscillator: osc[j],
+        });
+      } else if (volPasses) {
+        breaks.push({
+          index: j,
+          time: time[j],
+          type: "S",
+          closePrice: close[j],
+          levelBroken: lCurr.price,
+          direction: "down",
+          shape: "body",
+          withVolume: true,
+          volumeOscillator: osc[j],
+        });
+      } else {
+        breaks.push({
+          index: j,
+          time: time[j],
+          type: "S_unconfirmed",
+          closePrice: close[j],
+          levelBroken: lCurr.price,
+          direction: "down",
+          shape: "body",
+          withVolume: false,
+          volumeOscillator: osc[j],
+        });
       }
     }
   }
 
+  // Subset visible en TradingView (B, S, Bull_Wick, Bear_Wick).
+  const VISIBLE = new Set(["B", "S", "Bull_Wick", "Bear_Wick"]);
+  const visibleBreaks = breaks.filter((b) => VISIBLE.has(b.type));
+
+  // Historial de pivots en la ventana — útil para inspección JSON.
+  const pivotHistory = { highs: [], lows: [] };
+  for (let i = 0; i < N; i++) {
+    if (isPivotHigh[i])
+      pivotHistory.highs.push({ index: i, time: time[i], price: high[i] });
+    if (isPivotLow[i])
+      pivotHistory.lows.push({ index: i, time: time[i], price: low[i] });
+  }
+
+  // Niveles activos finales (los que estarían visibles en chart en la última vela).
+  const lastHigh = highUsePivot[N - 1];
+  const lastLow = lowUsePivot[N - 1];
+
   return {
-    supports: activeSupports.slice(),
-    resistances: activeResistances.slice(),
+    highUsePivot: lastHigh
+      ? {
+          price: lastHigh.price,
+          pivotIndex: lastHigh.pivotIndex,
+          time: time[lastHigh.pivotIndex],
+        }
+      : null,
+    lowUsePivot: lastLow
+      ? {
+          price: lastLow.price,
+          pivotIndex: lastLow.pivotIndex,
+          time: time[lastLow.pivotIndex],
+        }
+      : null,
     breaks,
+    visibleBreaks,
     lastBreak: breaks.length ? breaks[breaks.length - 1] : null,
+    lastVisibleBreak: visibleBreaks.length
+      ? visibleBreaks[visibleBreaks.length - 1]
+      : null,
+    pivotHistory,
   };
 }

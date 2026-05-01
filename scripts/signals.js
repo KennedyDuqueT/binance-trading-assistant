@@ -133,10 +133,13 @@ if (!Array.isArray(klines) || klines.length === 0) {
           },
           utBot: { signals: [], lastSignal: null, trailingStop: [], pos: [] },
           luxAlgo: {
-            supports: [],
-            resistances: [],
+            highUsePivot: null,
+            lowUsePivot: null,
             breaks: [],
+            visibleBreaks: [],
             lastBreak: null,
+            lastVisibleBreak: null,
+            pivotHistory: { highs: [], lows: [] },
           },
         },
         null,
@@ -207,10 +210,13 @@ if (wantJson) {
       pos: lastPos,
     },
     luxAlgo: {
-      supports: luxResult.supports,
-      resistances: luxResult.resistances,
+      highUsePivot: luxResult.highUsePivot,
+      lowUsePivot: luxResult.lowUsePivot,
       breaks: luxResult.breaks,
+      visibleBreaks: luxResult.visibleBreaks,
       lastBreak: luxResult.lastBreak,
+      lastVisibleBreak: luxResult.lastVisibleBreak,
+      pivotHistory: luxResult.pivotHistory,
     },
   };
   process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
@@ -255,20 +261,53 @@ reportLines.push("");
 reportLines.push(
   `## LuxAlgo S&R (pivot=${luxPivot}, vol filter=${volThresholdPct}%)`
 );
-const sup = luxResult.supports.map((l) => fmtPrice(l.price)).join(", ");
-const res = luxResult.resistances.map((l) => fmtPrice(l.price)).join(", ");
-reportLines.push(`- Soportes activos: ${sup || "n/d"}`);
-reportLines.push(`- Resistencias activas: ${res || "n/d"}`);
-if (luxResult.lastBreak) {
-  const lb = luxResult.lastBreak;
-  const ago = lastIdx - lb.index;
-  const volTag = lb.withVolume ? "alto" : "normal";
+if (luxResult.highUsePivot) {
+  const hp = luxResult.highUsePivot;
+  const ago = lastIdx - hp.pivotIndex;
   reportLines.push(
-    `- Último break: ${lb.type} en ${fmtRelative(ago, interval)} a ${fmtPrice(lb.price)} (volumen: ${volTag})`
+    `- Resistencia activa: ${fmtPrice(hp.price)} (confirmada ${fmtRelative(ago, interval)})`
   );
 } else {
-  reportLines.push("- Último break: n/d");
+  reportLines.push("- Resistencia activa: n/d");
 }
+if (luxResult.lowUsePivot) {
+  const lp = luxResult.lowUsePivot;
+  const ago = lastIdx - lp.pivotIndex;
+  reportLines.push(
+    `- Soporte activo: ${fmtPrice(lp.price)} (confirmado ${fmtRelative(ago, interval)})`
+  );
+} else {
+  reportLines.push("- Soporte activo: n/d");
+}
+if (luxResult.lastVisibleBreak) {
+  const lb = luxResult.lastVisibleBreak;
+  const ago = lastIdx - lb.index;
+  const labelMap = {
+    B: "B (body)",
+    S: "S (body)",
+    Bull_Wick: "Bull Wick",
+    Bear_Wick: "Bear Wick",
+  };
+  const label = labelMap[lb.type] || lb.type;
+  const dirText = lb.direction === "up" ? "rompió resistencia" : "rompió soporte";
+  const volText =
+    lb.shape === "wick"
+      ? lb.withVolume
+        ? "con volumen alto (rechazo confirmado)"
+        : "sin filtro de volumen (wick)"
+      : "con volumen confirmado";
+  reportLines.push(
+    `- Último break visible: ${label} ${fmtRelative(ago, interval)} a ${fmtPrice(lb.closePrice)}`
+  );
+  reportLines.push(
+    `  ${dirText} en ${fmtPrice(lb.levelBroken)} ${volText}`
+  );
+} else {
+  reportLines.push("- Último break visible: n/d");
+}
+reportLines.push(
+  "- Tipos de break: B/S = body con volumen | Bull Wick / Bear Wick = wick (rechazo)"
+);
 reportLines.push("");
 
 reportLines.push("## Validación cruzada");

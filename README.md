@@ -49,6 +49,8 @@ Nota: con `npm run`, los argumentos hacia el script requieren el separador `--` 
 
 Las señales son una implementación local de UT Bot Alerts y LuxAlgo S&R with Breaks sobre las velas que devuelve Binance Futures. Compará siempre con TradingView para validar; si las labels Buy/Sell o B/S no aparecen en el mismo candle, ajustá los parámetros con `--ut-atr`, `--ut-key`, `--lux-pivot`, `--lux-vol-pct`. La cache de klines vive en `analysis/klines/` (gitignored) — para limpiar: `rm -rf analysis/klines/`.
 
+LuxAlgo emite 4 categorías de break, idénticas a las del Pine oficial: `B` y `S` son rupturas de cuerpo con volumen confirmado (osc EMA(5)/EMA(10) > umbral); `Bull Wick` y `Bear Wick` son rupturas con mecha mayor que el cuerpo (rechazo, sin filtro de volumen). El reporte humano y `lastVisibleBreak` solo muestran estas 4. El JSON completo además incluye `B_unconfirmed` / `S_unconfirmed` (cruces de cuerpo con volumen bajo) en `breaks`, útiles para faders avanzados.
+
 Smart money en `market-snapshot` se reporta como `n/d (no aplica para perpetuos CEX)` — la skill on-chain solo cubre tokens DEX. El estado interno de `watchlist-update` vive en `analysis/.watchlist-state.json` (gitignored).
 
 ## Estructura
