@@ -9,7 +9,7 @@
 // Flags:
 //   --json              Emite JSON estructurado en stdout.
 //   --ut-atr <N>        Período del ATR (default 10).
-//   --ut-key <N>        Multiplicador del ATR para el trailing stop (default 1).
+//   --ut-key <N>        Multiplicador del ATR para el trailing stop (default 2).
 //   --lux-pivot <N>     leftBars = rightBars = N (default 15).
 //   --lux-vol-pct <N>   Umbral del oscilador SMA de volumen, en % (default 20).
 //   --limit <N>         Cantidad de velas a pedir (default 300).
@@ -60,7 +60,7 @@ const interval = String(intervalRaw);
 
 const wantJson = flag("json") === true;
 const atrPeriod = flagNum("ut-atr", 10);
-const keyValue = flagNum("ut-key", 1);
+const keyValue = flagNum("ut-key", 2);
 const luxPivot = flagNum("lux-pivot", 15);
 const volThresholdPct = flagNum("lux-vol-pct", 20);
 const limit = flagNum("limit", 300);
@@ -276,7 +276,7 @@ reportLines.push(
   "Compará con TradingView. Si las labels Buy/Sell o B/S no aparecen en el mismo"
 );
 reportLines.push(
-  "candle, ajustá los parámetros con --ut-key (default 1), --lux-pivot (default 15),"
+  "candle, ajustá los parámetros con --ut-key (default 2), --lux-pivot (default 15),"
 );
 reportLines.push("--lux-vol-pct (default 20), --ut-atr (default 10).");
 
