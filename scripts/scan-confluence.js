@@ -1,8 +1,10 @@
 #!/usr/bin/env node
+// V1.1 (2026-05-02): R1 requires UT 1H+4H alignment (was 1H-only). TP ladder 1.5R/2.5R (was 1R/2R) per CLAUDE.md operator rule.
 // scan-confluence.js
 // Escanea TODOS los pares USDT-M PERPETUAL de Binance Futures buscando setups
 // 3-de-4 confluencias (regla operativa de CLAUDE.md):
-//   R1: UT Bot 1H (o 4H si --interval both) en dirección del trade
+//   R1: UT Bot LONG (o SHORT) en 1H AND 4H — strict multi-TF alignment per operator's CLAUDE.md
+//       (con --interval 1h se exige sólo 1H; default `both` requiere ambos TFs)
 //   R2: LuxAlgo S&R last B/S en últimas 12 velas + precio dentro de ±5% del nivel
 //   R3: Volumen acompañando (V1 simplificado: vol 24h ≥ $50M ya pasa pre-filtro)
 //   R4: Contexto BTC alineado (UT Bot 1H BTC long ⇒ R4 long-side; short ⇒ R4 short-side)
@@ -64,7 +66,8 @@ const SCAN_REPORT_DIR = "analysis/scans";
 
 function parseArgs(argv) {
   const flags = {
-    interval: "1h", // 1h | 4h | both
+    // V1.1: default `both` — R1 requires 1H+4H alignment (was 1h-only).
+    interval: "both", // 1h | 4h | both
     notify: false,
     notifyOnEmpty: false,
     maxPairs: null,
@@ -94,7 +97,7 @@ function printUsage() {
       "Uso: node scripts/scan-confluence.js [flags]",
       "",
       "Flags:",
-      "  --interval <1h|4h|both>   Timeframe principal (default: 1h)",
+      "  --interval <1h|4h|both>   Timeframe principal (default: both — exige UT 1H+4H aligned)",
       "  --notify                  Postea top 1-2 a Telegram (env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)",
       "  --notify-on-empty         Postea aviso aunque no haya setups",
       "  --max-pairs <N>           Limita el universo (dev/smoke)",
@@ -272,36 +275,60 @@ function scoreConfluence(side, ctx) {
   const lastIdx = klines1h.length - 1;
   const lastClose = klines1h[lastIdx].close;
 
-  // R1: UT Bot 1H (or 4H if available) en dirección del trade
+  // R1: UT Bot LONG (o SHORT) en 1H AND 4H — strict multi-TF alignment per operator's CLAUDE.md.
+  //     Requiere que ambos TFs estén en `pos` igual a la dirección del trade,
+  //     y que al menos uno tenga el último label (Buy/Sell) dentro de R1_LOOKBACK_BARS.
+  //     Si sólo se solicitó 1H (no hay klines4h disponibles), evalúa sólo 1H.
   const ut1h = utBot(klines1h, { atrPeriod: UT_ATR_PERIOD, keyValue: UT_KEY_VALUE });
   const ut1hLast = ut1h.lastSignal;
+  const ut1hPos = ut1h.pos[lastIdx]; // 1 long, -1 short
+  const want = side === "long" ? 1 : -1;
+  const wantLabel = side === "long" ? "Buy" : "Sell";
+  const ut1hAligned = ut1hPos === want;
+  const ut1hAgo = ut1hLast ? lastIdx - ut1hLast.index : null;
+  const ut1hFresh = !!(ut1hLast && ut1hLast.type === wantLabel && ut1hAgo <= R1_LOOKBACK_BARS);
+
   let r1Ok = false;
   let r1Detail = "n/d";
-  if (ut1hLast) {
-    const ago = lastIdx - ut1hLast.index;
-    const matchSide =
-      (side === "long" && ut1hLast.type === "Buy") ||
-      (side === "short" && ut1hLast.type === "Sell");
-    if (matchSide && ago <= R1_LOOKBACK_BARS) {
-      r1Ok = true;
-      r1Detail = `UT 1H ${ut1hLast.type} hace ${ago}v a $${fmtPrice(ut1hLast.price)}`;
-    } else {
-      r1Detail = `UT 1H último ${ut1hLast.type} hace ${ago}v (${matchSide ? "fuera de ventana" : "dirección opuesta"})`;
-    }
-  }
-  // Si tenemos 4H y 1H falló, intentamos 4H
-  if (!r1Ok && klines4h && klines4h.length >= UT_ATR_PERIOD + 2) {
+
+  if (klines4h && klines4h.length >= UT_ATR_PERIOD + 2) {
+    // Ambos TFs disponibles → exigir alineación 1H AND 4H
     const ut4h = utBot(klines4h, { atrPeriod: UT_ATR_PERIOD, keyValue: UT_KEY_VALUE });
+    const last4hIdx = klines4h.length - 1;
     const ut4hLast = ut4h.lastSignal;
-    if (ut4hLast) {
-      const ago4 = klines4h.length - 1 - ut4hLast.index;
-      const matchSide4 =
-        (side === "long" && ut4hLast.type === "Buy") ||
-        (side === "short" && ut4hLast.type === "Sell");
-      if (matchSide4 && ago4 <= R1_LOOKBACK_BARS) {
-        r1Ok = true;
-        r1Detail = `UT 4H ${ut4hLast.type} hace ${ago4}v a $${fmtPrice(ut4hLast.price)}`;
+    const ut4hPos = ut4h.pos[last4hIdx];
+    const ut4hAligned = ut4hPos === want;
+    const ut4hAgo = ut4hLast ? last4hIdx - ut4hLast.index : null;
+    const ut4hFresh = !!(ut4hLast && ut4hLast.type === wantLabel && ut4hAgo <= R1_LOOKBACK_BARS);
+
+    if (ut1hAligned && ut4hAligned && (ut1hFresh || ut4hFresh)) {
+      r1Ok = true;
+      const freshTag = ut1hFresh && ut4hFresh
+        ? `1H ${wantLabel} hace ${ut1hAgo}v + 4H ${wantLabel} hace ${ut4hAgo}v`
+        : ut1hFresh
+          ? `1H ${wantLabel} hace ${ut1hAgo}v (4H aligned, last label hace ${ut4hAgo ?? "n/d"}v)`
+          : `4H ${wantLabel} hace ${ut4hAgo}v (1H aligned, last label hace ${ut1hAgo ?? "n/d"}v)`;
+      r1Detail = `UT alineado ${side} en 1H+4H — ${freshTag}`;
+    } else {
+      const reasons = [];
+      if (!ut1hAligned) reasons.push(`UT 1H pos=${ut1hPos} (no ${side})`);
+      if (!ut4hAligned) reasons.push(`UT 4H pos=${ut4hPos} (no ${side})`);
+      if (ut1hAligned && ut4hAligned && !(ut1hFresh || ut4hFresh)) {
+        reasons.push(`sin label fresco en 1H ni 4H (≤${R1_LOOKBACK_BARS}v)`);
       }
+      r1Detail = `UT no alineado 1H+4H: ${reasons.join("; ")}`;
+    }
+  } else {
+    // Sólo 1H → exigir 1H aligned + label fresco en 1H
+    if (ut1hAligned && ut1hFresh) {
+      r1Ok = true;
+      r1Detail = `UT 1H ${wantLabel} hace ${ut1hAgo}v a $${fmtPrice(ut1hLast.price)} (sólo 1H)`;
+    } else if (!ut1hAligned) {
+      r1Detail = `UT 1H pos=${ut1hPos} (no ${side})`;
+    } else {
+      r1Detail = ut1hLast
+        ? `UT 1H último ${ut1hLast.type} hace ${ut1hAgo}v (fuera de ventana o dirección opuesta)`
+        : "UT 1H sin señales";
     }
   }
 
@@ -404,16 +431,20 @@ function synthesizePlan(symbol, side, score, ticker24h) {
   const stopDist = Math.abs(entry - stop);
   const stopDistPct = (stopDist / entry) * 100;
 
-  // Ladder targets: TP1 = 1R (50%), TP2 = 2R (30%), residual = trail BE+fees+buffer (20%)
+  // Ladder targets: TP1 = 1.5R (50%), TP2 = 2.5R (30%), residual = trail BE+fees+buffer (20%)
+  // V1.1: R-multiples per CLAUDE.md operator rule (was 1R/2R, daba R:R weighted ~1.5 < gate 1:2).
+  const TP1_R_MULTIPLE = 1.5;
+  const TP2_R_MULTIPLE = 2.5;
+  const RESIDUAL_R_MULTIPLE = 2.0; // residual 20% trailing — asumimos exit promedio ~2R post-BE
   const r = stopDist;
   let tp1, tp2, tp3;
   if (side === "long") {
-    tp1 = entry + r;
-    tp2 = entry + 2 * r;
-    tp3 = entry + 3 * r; // referencia para trail
+    tp1 = entry + TP1_R_MULTIPLE * r;
+    tp2 = entry + TP2_R_MULTIPLE * r;
+    tp3 = entry + 3 * r; // referencia visual para trail
   } else {
-    tp1 = entry - r;
-    tp2 = entry - 2 * r;
+    tp1 = entry - TP1_R_MULTIPLE * r;
+    tp2 = entry - TP2_R_MULTIPLE * r;
     tp3 = entry - 3 * r;
   }
 
@@ -422,9 +453,9 @@ function synthesizePlan(symbol, side, score, ticker24h) {
   const notional = tier.sizeUSDT * tier.leverage;
   const lossUsd = notional * (stopDistPct / 100);
 
-  // R:R weighted (50% × 1R + 30% × 2R + 20% × ~2R conservador via BE trail)
-  // Asumimos residual cierra en ~2R promedio si trail BE se respeta sin pullback profundo.
-  const rrWeighted = 0.5 * 1 + 0.3 * 2 + 0.2 * 2;
+  // R:R weighted = 0.5 × 1.5R + 0.3 × 2.5R + 0.2 × 2.0R = 0.75 + 0.75 + 0.40 = 1.90R
+  // Apenas por debajo de 2.0R; clears gate operativo de 1:2 cuando residual trailing supera 2R.
+  const rrWeighted = 0.5 * TP1_R_MULTIPLE + 0.3 * TP2_R_MULTIPLE + 0.2 * RESIDUAL_R_MULTIPLE;
 
   return {
     tier: tier.tier,
@@ -536,9 +567,9 @@ function buildMarkdown(opts) {
         lines.push("- Plan tentativo:");
         lines.push(`  - Entrada: $${fmtPrice(plan.entry)}`);
         lines.push(`  - SL: $${fmtPrice(plan.stop)} (${plan.stopDistPct.toFixed(2)}% desde entrada, loss real T${plan.tier} ~ $${plan.lossUsd.toFixed(2)})`);
-        lines.push(`  - TP1 (50%): $${fmtPrice(plan.tp1)}`);
-        lines.push(`  - TP2 (30%): $${fmtPrice(plan.tp2)}`);
-        lines.push(`  - Residual (20%): trail BE+fees+buffer (ref ~$${fmtPrice(plan.tp3)})`);
+        lines.push(`  - TP1 (50% @ 1.5R): $${fmtPrice(plan.tp1)}`);
+        lines.push(`  - TP2 (30% @ 2.5R): $${fmtPrice(plan.tp2)}`);
+        lines.push(`  - Residual (20% @ ~2R): trail BE+fees+buffer (ref ~$${fmtPrice(plan.tp3)})`);
         lines.push(`  - Tamaño: $${plan.sizeUSDT} × ${plan.leverage}x = $${plan.notional.toFixed(2)} notional`);
         lines.push(`  - R:R weighted: 1:${plan.rrWeighted.toFixed(2)}`);
       }
