@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// V1.3 (2026-05-02): added --notify-min N flag (default 4) — Telegram alerts only when survivors with confluence >= N exist. Markdown report still captures all survivors.
 // V1.2 (2026-05-02): R2 rejects wicks (only "B"/"S" body breaks count). Hard filter adds 7d>+50% and 30d>+100% post-pump checks. R:R displayed as conservative-optimistic range.
 // scan-confluence.js
 // Escanea TODOS los pares USDT-M PERPETUAL de Binance Futures buscando setups
@@ -74,6 +75,8 @@ function parseArgs(argv) {
     interval: "both", // 1h | 4h | both
     notify: false,
     notifyOnEmpty: false,
+    // V1.3: default 4 — Telegram only fires si hay survivors con confluence >= 4 (strict).
+    notifyMin: 4,
     maxPairs: null,
     help: false,
   };
@@ -82,6 +85,7 @@ function parseArgs(argv) {
     if (a === "--help" || a === "-h") flags.help = true;
     else if (a === "--notify") flags.notify = true;
     else if (a === "--notify-on-empty") flags.notifyOnEmpty = true;
+    else if (a === "--notify-min") flags.notifyMin = Number(argv[++i]);
     else if (a === "--interval") flags.interval = String(argv[++i]);
     else if (a === "--max-pairs") flags.maxPairs = Number(argv[++i]);
     else throw new Error(`Flag desconocido: ${a}`);
@@ -91,6 +95,13 @@ function parseArgs(argv) {
   }
   if (flags.maxPairs !== null && (!Number.isFinite(flags.maxPairs) || flags.maxPairs <= 0)) {
     throw new Error(`--max-pairs debe ser entero positivo (recibido: ${flags.maxPairs})`);
+  }
+  if (
+    !Number.isInteger(flags.notifyMin) ||
+    flags.notifyMin < 1 ||
+    flags.notifyMin > 4
+  ) {
+    throw new Error(`--notify-min debe ser entero en [1,4] (recibido: ${flags.notifyMin})`);
   }
   return flags;
 }
@@ -103,7 +114,8 @@ function printUsage() {
       "Flags:",
       "  --interval <1h|4h|both>   Timeframe principal (default: both — exige UT 1H+4H aligned)",
       "  --notify                  Postea top 1-2 a Telegram (env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)",
-      "  --notify-on-empty         Postea aviso aunque no haya setups",
+      "  --notify-on-empty         Postea aviso aunque no haya setups (con --notify-min: aviso si no hay survivors >= min)",
+      "  --notify-min <N>          Sólo notifica Telegram si hay survivors con confluence ≥ N (default 4, rango 1-4)",
       "  --max-pairs <N>           Limita el universo (dev/smoke)",
       "  --help                    Esta ayuda",
     ].join("\n") + "\n",
@@ -869,17 +881,32 @@ async function main() {
   }
   process.stdout.write(`\nReporte completo: ${absReportPath}\n`);
 
-  // 10. Telegram notify
-  if (flags.notify || (flags.notifyOnEmpty && ranked.length === 0)) {
-    const shouldNotify = ranked.length > 0 ? flags.notify : flags.notifyOnEmpty;
-    if (shouldNotify) {
-      const msg = buildTelegramMessage({ ranked, scanTime, scanFile: reportFile });
+  // 10. Telegram notify (V1.3: filtrado por --notify-min — el reporte MD siempre captura todos los survivors)
+  if (!flags.notify) {
+    process.stdout.write("Telegram: skipped — flag --notify NO seteada\n");
+  } else {
+    const filteredRanked = ranked.filter((r) => r.score.count >= flags.notifyMin);
+    if (filteredRanked.length > 0) {
+      const msg = buildTelegramMessage({ ranked: filteredRanked, scanTime, scanFile: reportFile });
       const result = await sendTelegram(msg);
       if (result.ok) {
         process.stdout.write("Telegram: enviado ✅\n");
       } else {
         process.stdout.write(`Telegram: ${result.error}\n`);
       }
+    } else if (flags.notifyOnEmpty) {
+      const hhmm = fmtOperatorTime(scanTime).slice(11, 16);
+      const msg = `<b>Scan limpio</b>\n\nSin setups con confluence ≥ ${flags.notifyMin} en este ciclo (${hhmm}). Filtro --notify-min=${flags.notifyMin}.`;
+      const result = await sendTelegram(msg);
+      if (result.ok) {
+        process.stdout.write(`Telegram: enviado (aviso vacío, --notify-on-empty) ✅\n`);
+      } else {
+        process.stdout.write(`Telegram: ${result.error}\n`);
+      }
+    } else {
+      process.stdout.write(
+        `Telegram: skipped (0 setups con confluence >= ${flags.notifyMin} — flag --notify-min)\n`,
+      );
     }
   }
 
