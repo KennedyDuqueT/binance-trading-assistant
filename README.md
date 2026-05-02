@@ -56,6 +56,12 @@ npm run backtest -- BTCUSDT 1h --strategy confluenceEngine --to 2026-04-30T00:00
 npm run backtest -- BTCUSDT 1h --strategy confluenceEngine --side long --to 2026-04-30T00:00:00Z
 npm run backtest -- SOLUSDT 1h --strategy confluenceEngine --break-window 5 --to 2026-04-30T00:00:00Z
 npm run backtest -- BTCUSDT 1h --strategy confluenceEngine --json --no-snapshot
+
+# Scan confluence — escanea TODOS los pares USDT-M PERPETUAL buscando setups 3/4
+npm run scan-confluence
+npm run scan-confluence -- --interval 1h
+npm run scan-confluence -- --interval both --notify
+npm run scan-confluence -- --max-pairs 20      # dev / smoke
 ```
 
 Aviso sobre el backtest: la estrategia `utBotOnly` es un **baseline mínimo** (solo señales UT Bot, sin filtro de confluencia 3-de-4, sin contexto BTC, sin TP por niveles). El gate de promoción a testnet (win rate > 55%, R:R > 1:2) se valida contra `confluenceEngine`. **V1a de `confluenceEngine` ship con TP único @ 2.5R** (cumple PRD §5.1 R:R ≥ 1:2 con margen); la ladder 50/30/20 + breakeven trail queda deferida al follow-up `confluence-engine-tp-ladder` para no mezclar lógica de entrada con cambios al harness de salida. Las flags `--side <both|long|short>` y `--break-window <N>` (default 3) sólo aplican a `confluenceEngine`. Los outputs viven en `analysis/backtests/{runId}/` (gitignored). Para reproducir un run, usá `--replay <runId>` que relee `klines.json` del snapshot.

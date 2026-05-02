@@ -11,6 +11,23 @@ Por defecto: `analysis_only` (NO ejecutar trades reales).
 Para ejecutar, cambiar `BINANCE_MODE` en `.env` a `testnet` (recomendado) o `mainnet`.
 Cualquier ejecución en mainnet requiere confirmación explícita del operador en cada orden.
 
+## Estado actual del proyecto (2026-05-01)
+
+**Phase 1 (ACTIVE)**: Manual trading + skills (data) + indicadores locales (second opinion) + journal en `analysis/trade-log.md`. Operator analiza charts en TradingView, Claude provee data via skills + signals CLI, operator decide y ejecuta manual en la UI de Binance, documenta resultado en el log.
+
+**Phase 2 (PAUSED indefinitely)**: backtester + strategy automation. Razón: validación empírica multi-pair × multi-window × side-decomposed (3 ventanas no-solapadas de 6m × 4 pares T1 × 2 sides = 24 celdas medidas) falsificó el edge del `confluenceEngine` 3-de-4 mecánicamente backtested. La regla 3-de-4 sigue siendo la disciplina manual del operator; lo que se descartó es la tesis de que esa regla **automatizada** tenga edge persistente cross-regime sin awareness explícita de régimen.
+
+**Backtester + indicadores locales NO se removieron**: siguen disponibles como herramientas de **second-opinion cuantitativo** para análisis manual (`npm run signals -- SYM TF`, `npm run market-snapshot`, `npm run backtest -- ...`). NO se usan como auto-rules.
+
+**Fuente de verdad sobre edge real**: `analysis/trade-log.md` después de 30+ trades documentados. Ningún backtest reemplaza data del operator real.
+
+**Si retomás Phase 2 en el futuro**: gate institucional para strategy promotion = ≥3 de 4 pares T1 con PF ≥ 1.0 AND expectancy > 0 across **3 ventanas 6m no-solapadas**, side-decomposed (long/short separately). Side-combined aggregates pueden enmascarar regime guesses — siempre side-decomposed.
+
+**Contexto histórico en engram** (consultable via `mem_search`):
+- `confluenceEngine-V1a-result/three-window-short-confirmation` — la falsificación final
+- `sdd/confluence-engine-tp-ladder/apply-progress` — V1b multi-leg architecture (sano, re-usable si una futura strategy sí tiene edge)
+- `discoveries/atr-trail-empirical-regression`, `discoveries/tp-ladder-v1b-lift-regression` — por qué se descartaron los attempts de tuning
+
 ## Sistema técnico del operador
 
 Operador toma decisiones combinando dos fuentes de información:
@@ -46,9 +63,9 @@ R:R mínimo aceptable: 1:2.
 
 Si las 4 condiciones no se pueden verificar, decirlo explícitamente y NO recomendar entrada por defecto.
 
-Nota sobre el gate de testnet (win rate > 55%, R:R > 1:2): aplica al backtest del `confluenceEngine` (la estrategia que codifica la regla 3-de-4 + contexto BTC en `scripts/lib/backtest/strategies/confluenceEngine.js`), NO al baseline `utBotOnly`. El baseline existe sólo como referencia para medir el lift de la confluencia.
+Nota sobre el gate de testnet (win rate > 55%, R:R > 1:2): aplica al backtest del `confluenceEngine` (la estrategia que codifica la regla 3-de-4 + contexto BTC en `scripts/lib/backtest/strategies/confluenceEngine.js`), NO al baseline `utBotOnly`. El baseline existe sólo como referencia para medir el lift de la confluencia. (Empíricamente NO cleared por V1a en validación 3-window × 4-pair × side-decomposed; ver "Estado actual del proyecto".)
 
-Nota V1a sobre `confluenceEngine`: en backtest la estrategia usa **TP único @ 2.5R** en lugar del ladder 50/30/20 — la ladder queda deferida al follow-up `confluence-engine-tp-ladder` (requiere extensiones al harness de posición). La regla operativa para el operador humano sigue siendo el ladder; la simplificación aplica sólo al backtest. Flags relevantes: `--strategy confluenceEngine`, `--side <both|long|short>` (default both), `--break-window <N>` (default 3 barras para R2).
+Nota sobre `confluenceEngine` (backtester): la estrategia usa **TP único @ 2.5R** en backtest, no la ladder 50/30/20 que es la disciplina manual del operator. La ladder se implementó como `confluence-engine-tp-ladder` (V1b multi-leg) en este proyecto y se descartó tras falsificación empírica del 3-de-4 gate base — ver "Estado actual del proyecto". La regla operativa **para el operador humano (manual) sigue siendo el ladder** 50/30/20; la simplificación TP único aplicó sólo al backtest. Flags del backtester: `--strategy confluenceEngine`, `--side <both|long|short>` (default both), `--break-window <N>` (default 3 barras para R2).
 
 ## Tamaño de posición
 

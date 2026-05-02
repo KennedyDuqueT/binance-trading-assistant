@@ -22,3 +22,4 @@ charts/private/
 analysis/.watchlist-state.json
 analysis/klines/
 analysis/backtests/
+analysis/scans/

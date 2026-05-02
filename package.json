@@ -10,10 +10,11 @@
     "node": ">=20"
   },
   "scripts": {
-    "market-snapshot": "node scripts/market-snapshot.js",
-    "token-audit": "node scripts/token-audit.js",
-    "watchlist-update": "node scripts/watchlist-update.js",
-    "signals": "node scripts/signals.js",
-    "backtest": "node scripts/backtest.js"
+    "market-snapshot": "node --env-file-if-exists=.env scripts/market-snapshot.js",
+    "token-audit": "node --env-file-if-exists=.env scripts/token-audit.js",
+    "watchlist-update": "node --env-file-if-exists=.env scripts/watchlist-update.js",
+    "signals": "node --env-file-if-exists=.env scripts/signals.js",
+    "backtest": "node --env-file-if-exists=.env scripts/backtest.js",
+    "scan-confluence": "node --env-file-if-exists=.env scripts/scan-confluence.js"
   }
 }
