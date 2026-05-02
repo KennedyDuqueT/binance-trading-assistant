@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// V1.1 (2026-05-02): R1 requires UT 1H+4H alignment (was 1H-only). TP ladder 1.5R/2.5R (was 1R/2R) per CLAUDE.md operator rule.
+// V1.2 (2026-05-02): R2 rejects wicks (only "B"/"S" body breaks count). Hard filter adds 7d>+50% and 30d>+100% post-pump checks. R:R displayed as conservative-optimistic range.
 // scan-confluence.js
 // Escanea TODOS los pares USDT-M PERPETUAL de Binance Futures buscando setups
 // 3-de-4 confluencias (regla operativa de CLAUDE.md):
@@ -55,6 +55,10 @@ const R2_LOOKBACK_BARS = 12;
 const R2_MAX_DIST_PCT = 5;
 const HARD_FILTER_FUNDING_MAX = 0.00046; // +0.046%/8h
 const HARD_FILTER_MAX_STOP_DIST_PCT = 8;
+// V1.2: post-pump hard filters multi-window (1000LUNC slipped through con +120% en 30d).
+const HARD_FILTER_MAX_7D_CHG = 0.50; // +50% en 7d → eliminar
+const HARD_FILTER_MAX_30D_CHG = 1.00; // +100% en 30d → eliminar
+const DAILY_KLINES_LIMIT = 31; // 30d + hoy
 const KLINES_LIMIT = 100;
 const CONCURRENCY = 5;
 const BATCH_DELAY_MS = 50;
@@ -332,7 +336,9 @@ function scoreConfluence(side, ctx) {
     }
   }
 
-  // R2: LuxAlgo last B (long) / S (short) en últimas 12 velas + precio dentro de ±5%
+  // R2: LuxAlgo last B (long) / S (short) en últimas 12 velas + precio dentro de ±5%.
+  // V1.2: SOLO body breaks "B"/"S" cuentan como pass. Bull_Wick/Bear_Wick son señales
+  // de RECHAZO en la dirección opuesta — incluirlas como pass invertía la lógica.
   const lux = luxAlgoSnR(klines1h, {
     leftBars: LUX_LEFT,
     rightBars: LUX_RIGHT,
@@ -344,9 +350,9 @@ function scoreConfluence(side, ctx) {
   let r2Detail = "n/d";
   let r2Level = null;
   let r2DistPct = null;
-  // Buscar el último break visible matching dirección
-  const matchType = side === "long" ? new Set(["B", "Bull_Wick"]) : new Set(["S", "Bear_Wick"]);
-  const matchingBreaks = lux.visibleBreaks.filter((b) => matchType.has(b.type));
+  // Sólo body break en la dirección del trade. Wicks NO cuentan (rechazo, dirección opuesta).
+  const wantBreakType = side === "long" ? "B" : "S";
+  const matchingBreaks = lux.visibleBreaks.filter((b) => b.type === wantBreakType);
   const lastMatch = matchingBreaks.length ? matchingBreaks[matchingBreaks.length - 1] : null;
   if (lastMatch) {
     const ago = lastIdx - lastMatch.index;
@@ -358,6 +364,18 @@ function scoreConfluence(side, ctx) {
       r2Detail = `${lastMatch.type} hace ${ago}v a $${fmtPrice(lastMatch.levelBroken)} (dist ${distPct.toFixed(2)}%)`;
     } else {
       r2Detail = `${lastMatch.type} hace ${ago}v (${ago > R2_LOOKBACK_BARS ? "fuera de ventana" : "dist " + distPct.toFixed(2) + "% > 5%"})`;
+    }
+  } else {
+    // Diagnóstico: si hay wicks recientes pero no body breaks, indicarlo (señal de rechazo).
+    const wickType = side === "long" ? "Bull_Wick" : "Bear_Wick";
+    const recentWicks = lux.visibleBreaks.filter(
+      (b) => b.type === wickType && lastIdx - b.index <= R2_LOOKBACK_BARS,
+    );
+    if (recentWicks.length) {
+      const w = recentWicks[recentWicks.length - 1];
+      r2Detail = `sin "${wantBreakType}" reciente (último ${wickType} hace ${lastIdx - w.index}v — rechazo, no cuenta)`;
+    } else {
+      r2Detail = `sin "${wantBreakType}" en últimas ${R2_LOOKBACK_BARS}v`;
     }
   }
 
@@ -435,7 +453,8 @@ function synthesizePlan(symbol, side, score, ticker24h) {
   // V1.1: R-multiples per CLAUDE.md operator rule (was 1R/2R, daba R:R weighted ~1.5 < gate 1:2).
   const TP1_R_MULTIPLE = 1.5;
   const TP2_R_MULTIPLE = 2.5;
-  const RESIDUAL_R_MULTIPLE = 2.0; // residual 20% trailing — asumimos exit promedio ~2R post-BE
+  const RESIDUAL_R_OPTIMISTIC = 2.0; // residual 20% trailing — asumimos exit promedio ~2R post-BE
+  const RESIDUAL_R_CONSERVATIVE = 0.0; // residual sale a BE per CLAUDE.md ("trailing a breakeven")
   const r = stopDist;
   let tp1, tp2, tp3;
   if (side === "long") {
@@ -453,9 +472,13 @@ function synthesizePlan(symbol, side, score, ticker24h) {
   const notional = tier.sizeUSDT * tier.leverage;
   const lossUsd = notional * (stopDistPct / 100);
 
-  // R:R weighted = 0.5 × 1.5R + 0.3 × 2.5R + 0.2 × 2.0R = 0.75 + 0.75 + 0.40 = 1.90R
-  // Apenas por debajo de 2.0R; clears gate operativo de 1:2 cuando residual trailing supera 2R.
-  const rrWeighted = 0.5 * TP1_R_MULTIPLE + 0.3 * TP2_R_MULTIPLE + 0.2 * RESIDUAL_R_MULTIPLE;
+  // R:R weighted — V1.2: rango conservative-optimistic.
+  //   Conservative: residual sale a BE (CLAUDE.md "trailing a breakeven") → 0R contribución
+  //     0.5 × 1.5 + 0.3 × 2.5 + 0.2 × 0.0 = 0.75 + 0.75 + 0.00 = 1.50R
+  //   Optimistic: residual trailing alcanza ~2R promedio post-BE
+  //     0.5 × 1.5 + 0.3 × 2.5 + 0.2 × 2.0 = 0.75 + 0.75 + 0.40 = 1.90R
+  const rrWeightedConservative = 0.5 * TP1_R_MULTIPLE + 0.3 * TP2_R_MULTIPLE + 0.2 * RESIDUAL_R_CONSERVATIVE;
+  const rrWeightedOptimistic = 0.5 * TP1_R_MULTIPLE + 0.3 * TP2_R_MULTIPLE + 0.2 * RESIDUAL_R_OPTIMISTIC;
 
   return {
     tier: tier.tier,
@@ -469,7 +492,8 @@ function synthesizePlan(symbol, side, score, ticker24h) {
     tp2,
     tp3,
     lossUsd,
-    rrWeighted,
+    rrWeightedConservative,
+    rrWeightedOptimistic,
   };
 }
 
@@ -571,7 +595,7 @@ function buildMarkdown(opts) {
         lines.push(`  - TP2 (30% @ 2.5R): $${fmtPrice(plan.tp2)}`);
         lines.push(`  - Residual (20% @ ~2R): trail BE+fees+buffer (ref ~$${fmtPrice(plan.tp3)})`);
         lines.push(`  - Tamaño: $${plan.sizeUSDT} × ${plan.leverage}x = $${plan.notional.toFixed(2)} notional`);
-        lines.push(`  - R:R weighted: 1:${plan.rrWeighted.toFixed(2)}`);
+        lines.push(`  - R:R weighted: **1:${plan.rrWeightedConservative.toFixed(2)} (conservativo, residual a BE) – 1:${plan.rrWeightedOptimistic.toFixed(2)} (si residual corre a ~2R)**`);
       }
       lines.push(`- Validación pre-entry: **sí** — captura TV 1H+4H confirmando UT label visible y nivel LuxAlgo en el chart`);
       lines.push("");
@@ -611,7 +635,7 @@ function buildTelegramMessage(opts) {
     lines.push(`Entrada: $${fmtPrice(plan0.entry)}`);
     lines.push(`SL: $${fmtPrice(plan0.stop)} (loss $${plan0.lossUsd.toFixed(2)})`);
     lines.push(`TP1: $${fmtPrice(plan0.tp1)} | TP2: $${fmtPrice(plan0.tp2)}`);
-    lines.push(`R:R: 1:${plan0.rrWeighted.toFixed(2)}`);
+    lines.push(`R:R: ${plan0.rrWeightedConservative.toFixed(2)}–${plan0.rrWeightedOptimistic.toFixed(2)}`);
   }
 
   if (top[1]) {
@@ -745,6 +769,67 @@ async function main() {
     score.funding = funding;
     if (!score.hardFiltersPassed) {
       discarded.push({ symbol: ps.symbol, side: ps.side, reason: score.reasonIfFailed });
+    }
+  }
+
+  // 6.5 Post-pump hard filter multi-window (V1.2): para sobrevivientes que aún pasan,
+  //     fetch daily klines y eliminar si 7d > +50% o 30d > +100% (long).
+  //     Para shorts simétrico: eliminar si 7d < -50% o 30d < -100% (post-dump capitulation).
+  const stillPassing = provisionalSurvivors.filter((ps) => ps.ref[ps.side].hardFiltersPassed);
+  const symbolsForDaily = [...new Set(stillPassing.map((s) => s.symbol))];
+  if (symbolsForDaily.length > 0) {
+    process.stderr.write(`[scan-confluence] post-pump filter: fetching daily klines para ${symbolsForDaily.length} símbolos...\n`);
+    const dailyResults = await pool(
+      symbolsForDaily,
+      async (sym) => {
+        try {
+          const dk = await fetchKlines(sym, "1d", { limit: DAILY_KLINES_LIMIT });
+          return { symbol: sym, klines: dk };
+        } catch (err) {
+          return { symbol: sym, error: err.message };
+        }
+      },
+      CONCURRENCY,
+    );
+    const dailyMap = new Map();
+    for (const d of dailyResults) {
+      if (!d.__error && !d.error && d.klines) dailyMap.set(d.symbol, d.klines);
+    }
+
+    for (const ps of stillPassing) {
+      const dk = dailyMap.get(ps.symbol);
+      if (!dk || dk.length < 8) continue; // sin data daily, no podemos filtrar — dejar pasar
+      const closes = dk.map((k) => k.close);
+      const closeNow = closes[closes.length - 1];
+      const close7d = closes[closes.length - 8] ?? closes[0];
+      const close30d = closes[0];
+      if (!Number.isFinite(closeNow) || !Number.isFinite(close7d) || !Number.isFinite(close30d)) continue;
+      const change7d = (closeNow - close7d) / close7d;
+      const change30d = (closeNow - close30d) / close30d;
+
+      const score = ps.ref[ps.side];
+      const failures = [];
+      if (ps.side === "long") {
+        if (change7d > HARD_FILTER_MAX_7D_CHG) {
+          failures.push(`7d chg ${(change7d * 100).toFixed(2)}% > +50%`);
+        }
+        if (change30d > HARD_FILTER_MAX_30D_CHG) {
+          failures.push(`30d chg ${(change30d * 100).toFixed(2)}% > +100%`);
+        }
+      } else {
+        if (change7d < -HARD_FILTER_MAX_7D_CHG) {
+          failures.push(`7d chg ${(change7d * 100).toFixed(2)}% < -50%`);
+        }
+        if (change30d < -HARD_FILTER_MAX_30D_CHG) {
+          failures.push(`30d chg ${(change30d * 100).toFixed(2)}% < -100%`);
+        }
+      }
+      if (failures.length > 0) {
+        score.hardFiltersPassed = false;
+        const prevReason = score.reasonIfFailed;
+        score.reasonIfFailed = prevReason ? `${prevReason}; ${failures.join("; ")}` : failures.join("; ");
+        discarded.push({ symbol: ps.symbol, side: ps.side, reason: failures.join("; ") });
+      }
     }
   }
 
